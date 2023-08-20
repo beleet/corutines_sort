@@ -2,8 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include "libcoro.h"
-#include <unistd.h>
 #include <time.h>
+
+char **file_names;
+long *coro_overall_time;
+long *coro_last_yield_time;
 
 void merge(
         int arr[],
@@ -30,15 +33,19 @@ void merge(
 
 void mergeSort(
         int arr[],
-        int size
+        int size,
+        void *context
 ) {
+
+    struct timespec current_time;
+    int *coro_index = (int *) context;
 
     if (size < 2)
         return;
 
     int mid = size / 2;
-    int left[mid];
-    int right[size - mid];
+    int *left = (int *) calloc(mid, sizeof(int));
+    int *right = (int *) calloc(size - mid, sizeof(int));
 
     for (int i = 0; i < mid; i++)
         left[i] = arr[i];
@@ -46,11 +53,22 @@ void mergeSort(
     for (int i = mid; i < size; i++)
         right[i - mid] = arr[i];
 
-    mergeSort(left, mid);
+    mergeSort(left, mid, context);
+    clock_gettime(CLOCK_MONOTONIC, &current_time);
+    coro_overall_time[*coro_index] += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - coro_last_yield_time[*coro_index];
+    coro_last_yield_time[*coro_index] = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
     coro_yield();
-    mergeSort(right, size - mid);
+
+    mergeSort(right, size - mid, context);
+    clock_gettime(CLOCK_MONOTONIC, &current_time);
+    coro_overall_time[*coro_index] += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - coro_last_yield_time[*coro_index];
+    coro_last_yield_time[*coro_index] = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
     coro_yield();
+
     merge(arr, left, mid, right, size - mid);
+    clock_gettime(CLOCK_MONOTONIC, &current_time);
+    coro_overall_time[*coro_index] += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - coro_last_yield_time[*coro_index];
+    coro_last_yield_time[*coro_index] = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
     coro_yield();
 }
 
@@ -125,10 +143,12 @@ void mergeFiles(
 static int
 coroutine_func_f(void *context)
 {
+    int *coro_index = (int *) context;
+
     FILE *file;
     int num, count = 0;
 
-    file = fopen(context, "r");
+    file = fopen(file_names[*coro_index], "r");
     if (file == NULL) {
         printf("Failed to open the file.\n");
         return 1;
@@ -157,9 +177,9 @@ coroutine_func_f(void *context)
 
     fclose(file);
 
-    mergeSort(arr, count);
+    mergeSort(arr, count, context);
 
-    file = fopen(context, "w");
+    file = fopen(file_names[*coro_index], "w");
     if (file == NULL) {
         printf("Failed to open the file for writing.\n");
         free(arr);
@@ -178,8 +198,9 @@ coroutine_func_f(void *context)
 int
 main(int argc, char **argv)
 {
-    struct timespec start_time, end_time;
-    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    file_names = (char **) calloc(argc, sizeof(char *));
+    coro_overall_time = (long *) calloc(argc, sizeof(long));
+    coro_last_yield_time = (long *) calloc(argc, sizeof(long));
 
     if (argc < 2) {
         printf("No files for sorting provided\n");
@@ -191,10 +212,17 @@ main(int argc, char **argv)
     for (int i = 1; i < argc; ++i) {
         printf("%s\n", argv[i]);
 
-        char name[16];
-        sprintf(name, "coro_%d", i);
+        int *new_coro_index = (int *) malloc(sizeof(int));
+        struct timespec coro_start_time;
+        clock_gettime(CLOCK_MONOTONIC, &coro_start_time);
 
-        coro_new(coroutine_func_f, strdup(argv[i]));
+        *new_coro_index = i;
+
+        file_names[i] = argv[i];
+        coro_overall_time[i] = 0;
+        coro_last_yield_time[i] = coro_start_time.tv_sec * 1000 * 1000 * 1000 + coro_start_time.tv_nsec;
+
+        coro_new(coroutine_func_f, new_coro_index);
     }
 
     struct coro *c;
@@ -211,8 +239,7 @@ main(int argc, char **argv)
 
     mergeFiles(outputFile, inputFiles, argc - 1);
 
-    clock_gettime(CLOCK_MONOTONIC, &end_time);
-
-    printf("Start time: %lld %ld\n", (long long) start_time.tv_sec, start_time.tv_nsec);
-    printf("End time: %lld %ld\n", (long long) end_time.tv_sec, end_time.tv_nsec);
+    for (int i = 1; i < argc; i++) {
+        printf("coro_%d -> %ld ns\n", i, coro_overall_time[i]);
+    }
 }
