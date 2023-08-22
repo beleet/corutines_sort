@@ -4,9 +4,11 @@
 #include "libcoro.h"
 #include <time.h>
 
-char **file_names;
-long *coro_overall_time;
-long *coro_last_yield_time;
+struct coro_context {
+    char *file_name;
+    long coro_overall_time;
+    long coro_last_yield_time;
+};
 
 void merge(
         int arr[],
@@ -38,7 +40,7 @@ void mergeSort(
 ) {
 
     struct timespec current_time;
-    int *coro_index = (int *) context;
+    struct coro_context *new_coro_context = (struct coro_context*) context;
 
     if (size < 2)
         return;
@@ -55,21 +57,27 @@ void mergeSort(
 
     mergeSort(left, mid, context);
     clock_gettime(CLOCK_MONOTONIC, &current_time);
-    coro_overall_time[*coro_index] += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - coro_last_yield_time[*coro_index];
-    coro_last_yield_time[*coro_index] = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
+    new_coro_context -> coro_overall_time += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - new_coro_context -> coro_last_yield_time;
     coro_yield();
+    clock_gettime(CLOCK_MONOTONIC, &current_time);
+    new_coro_context -> coro_last_yield_time = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
 
     mergeSort(right, size - mid, context);
     clock_gettime(CLOCK_MONOTONIC, &current_time);
-    coro_overall_time[*coro_index] += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - coro_last_yield_time[*coro_index];
-    coro_last_yield_time[*coro_index] = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
+    new_coro_context -> coro_overall_time += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - new_coro_context -> coro_last_yield_time;
     coro_yield();
+    clock_gettime(CLOCK_MONOTONIC, &current_time);
+    new_coro_context -> coro_last_yield_time = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
 
     merge(arr, left, mid, right, size - mid);
     clock_gettime(CLOCK_MONOTONIC, &current_time);
-    coro_overall_time[*coro_index] += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - coro_last_yield_time[*coro_index];
-    coro_last_yield_time[*coro_index] = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
+    new_coro_context -> coro_overall_time += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - new_coro_context -> coro_last_yield_time;
     coro_yield();
+    clock_gettime(CLOCK_MONOTONIC, &current_time);
+    new_coro_context -> coro_last_yield_time = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
+
+    free(left);
+    free(right);
 }
 
 void mergeFiles(
@@ -131,6 +139,7 @@ void mergeFiles(
     for (i = 0; i < numFiles; i++) {
         fclose(in_files[i]);
     }
+
     fclose(out_file);
 
     printf("Files merged successfully into output.txt.\n");
@@ -143,12 +152,12 @@ void mergeFiles(
 static int
 coroutine_func_f(void *context)
 {
-    int *coro_index = (int *) context;
+    struct coro_context *new_coro_context = (struct coro_context*) context;
 
     FILE *file;
     int num, count = 0;
 
-    file = fopen(file_names[*coro_index], "r");
+    file = fopen(new_coro_context -> file_name, "r");
     if (file == NULL) {
         printf("Failed to open the file.\n");
         return 1;
@@ -179,7 +188,7 @@ coroutine_func_f(void *context)
 
     mergeSort(arr, count, context);
 
-    file = fopen(file_names[*coro_index], "w");
+    file = fopen(new_coro_context -> file_name, "w");
     if (file == NULL) {
         printf("Failed to open the file for writing.\n");
         free(arr);
@@ -198,31 +207,27 @@ coroutine_func_f(void *context)
 int
 main(int argc, char **argv)
 {
-    file_names = (char **) calloc(argc, sizeof(char *));
-    coro_overall_time = (long *) calloc(argc, sizeof(long));
-    coro_last_yield_time = (long *) calloc(argc, sizeof(long));
 
     if (argc < 2) {
         printf("No files for sorting provided\n");
         return 1;
     }
 
+    struct coro_context *new_coro_context = (struct coro_context*) calloc(argc, sizeof(struct coro_context));
+
     coro_sched_init();
 
     for (int i = 1; i < argc; ++i) {
         printf("%s\n", argv[i]);
 
-        int *new_coro_index = (int *) malloc(sizeof(int));
         struct timespec coro_start_time;
         clock_gettime(CLOCK_MONOTONIC, &coro_start_time);
 
-        *new_coro_index = i;
+        new_coro_context[i].file_name = argv[i];
+        new_coro_context[i].coro_overall_time = 0;
+        new_coro_context[i].coro_last_yield_time = coro_start_time.tv_sec * 1000 * 1000 * 1000 + coro_start_time.tv_nsec;
 
-        file_names[i] = argv[i];
-        coro_overall_time[i] = 0;
-        coro_last_yield_time[i] = coro_start_time.tv_sec * 1000 * 1000 * 1000 + coro_start_time.tv_nsec;
-
-        coro_new(coroutine_func_f, new_coro_index);
+        coro_new(coroutine_func_f, &new_coro_context[i]);
     }
 
     struct coro *c;
@@ -240,6 +245,10 @@ main(int argc, char **argv)
     mergeFiles(outputFile, inputFiles, argc - 1);
 
     for (int i = 1; i < argc; i++) {
-        printf("coro_%d -> %ld ns\n", i, coro_overall_time[i]);
+        printf("coro_%d -> %ld ns\n", i, new_coro_context[i].coro_overall_time);
     }
+
+    free(new_coro_context);
+
+    return 0;
 }
