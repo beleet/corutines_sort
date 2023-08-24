@@ -8,6 +8,7 @@ struct coro_context {
     char *file_name;
     long coro_overall_time;
     long coro_last_yield_time;
+    long coro_yield_count;
 };
 
 void merge(
@@ -58,6 +59,7 @@ void mergeSort(
     mergeSort(left, mid, context);
     clock_gettime(CLOCK_MONOTONIC, &current_time);
     new_coro_context -> coro_overall_time += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - new_coro_context -> coro_last_yield_time;
+    new_coro_context -> coro_yield_count += 1;
     coro_yield();
     clock_gettime(CLOCK_MONOTONIC, &current_time);
     new_coro_context -> coro_last_yield_time = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
@@ -65,6 +67,7 @@ void mergeSort(
     mergeSort(right, size - mid, context);
     clock_gettime(CLOCK_MONOTONIC, &current_time);
     new_coro_context -> coro_overall_time += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - new_coro_context -> coro_last_yield_time;
+    new_coro_context -> coro_yield_count += 1;
     coro_yield();
     clock_gettime(CLOCK_MONOTONIC, &current_time);
     new_coro_context -> coro_last_yield_time = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
@@ -72,6 +75,7 @@ void mergeSort(
     merge(arr, left, mid, right, size - mid);
     clock_gettime(CLOCK_MONOTONIC, &current_time);
     new_coro_context -> coro_overall_time += current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec - new_coro_context -> coro_last_yield_time;
+    new_coro_context -> coro_yield_count += 1;
     coro_yield();
     clock_gettime(CLOCK_MONOTONIC, &current_time);
     new_coro_context -> coro_last_yield_time = current_time.tv_sec * 1000 * 1000 * 1000 + current_time.tv_nsec;
@@ -226,6 +230,7 @@ main(int argc, char **argv)
         new_coro_context[i].file_name = argv[i];
         new_coro_context[i].coro_overall_time = 0;
         new_coro_context[i].coro_last_yield_time = coro_start_time.tv_sec * 1000 * 1000 * 1000 + coro_start_time.tv_nsec;
+        new_coro_context[i].coro_yield_count = 0;
 
         coro_new(coroutine_func_f, &new_coro_context[i]);
     }
@@ -245,7 +250,7 @@ main(int argc, char **argv)
     mergeFiles(outputFile, inputFiles, argc - 1);
 
     for (int i = 1; i < argc; i++) {
-        printf("coro_%d -> %ld ns\n", i, new_coro_context[i].coro_overall_time);
+        printf("coro_%d -> %ld ns, %ld switches\n", i, new_coro_context[i].coro_overall_time, new_coro_context[i].coro_yield_count);
     }
 
     free(new_coro_context);
