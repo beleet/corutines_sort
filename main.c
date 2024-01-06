@@ -162,6 +162,7 @@ coroutine_func_f(void *context)
     int num, count = 0;
 
     file = fopen(new_coro_context -> file_name, "r");
+
     if (file == NULL) {
         printf("Failed to open the file.\n");
         return 1;
@@ -211,7 +212,6 @@ coroutine_func_f(void *context)
 int
 main(int argc, char **argv)
 {
-
     if (argc < 2) {
         printf("No files for sorting provided\n");
         return 1;
