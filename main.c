@@ -212,8 +212,15 @@ coroutine_func_f(void *context)
 int
 main(int argc, char **argv)
 {
-    if (argc < 2) {
-        printf("No files for sorting provided\n");
+    if (argc < 3) {
+        printf("Usage: <executable_name> <number of corutines> <file_name_1> <file_name_2> ...\n");
+        return 1;
+    }
+
+    int corutines_number = atoi(argv[1]);
+
+    if (corutines_number == 0 && argv[1][0] != '0') {
+        printf("Corutines number must be an integer\n");
         return 1;
     }
 
@@ -221,7 +228,7 @@ main(int argc, char **argv)
 
     coro_sched_init();
 
-    for (int i = 1; i < argc; ++i) {
+    for (int i = 2; i < argc; ++i) {
         printf("%s\n", argv[i]);
 
         struct timespec coro_start_time;
@@ -244,13 +251,13 @@ main(int argc, char **argv)
     char *inputFiles[argc];
     const char *outputFile = "output.txt";
 
-    for (int i = 0; i < argc - 1; i++)
-        inputFiles[i] = argv[i + 1];
+    for (int i = 0; i < argc - 2; i++)
+        inputFiles[i] = argv[i + 2];
 
-    mergeFiles(outputFile, inputFiles, argc - 1);
+    mergeFiles(outputFile, inputFiles, argc - 2);
 
-    for (int i = 1; i < argc; i++) {
-        printf("coro_%d -> %ld ns, %ld switches\n", i, new_coro_context[i].coro_overall_time, new_coro_context[i].coro_yield_count);
+    for (int i = 2; i < argc; i++) {
+        printf("coro_%d -> %ld ns, %ld switches\n", i - 1, new_coro_context[i].coro_overall_time, new_coro_context[i].coro_yield_count);
     }
 
     free(new_coro_context);
