@@ -4,8 +4,15 @@
 #include "libcoro.h"
 #include <time.h>
 
+struct files_pool {
+    char **files_names;
+    long last_processed_file_index;
+    long files_number;
+};
+
 struct coro_context {
-    char *file_name;
+    struct files_pool *files_pool;
+    long coro_index;
     long coro_overall_time;
     long coro_last_yield_time;
     long coro_yield_count;
@@ -158,53 +165,63 @@ coroutine_func_f(void *context)
 {
     struct coro_context *new_coro_context = (struct coro_context*) context;
 
-    FILE *file;
-    int num, count = 0;
+    while (1) {
 
-    file = fopen(new_coro_context -> file_name, "r");
+        if (new_coro_context->files_pool->last_processed_file_index + 1 == new_coro_context->files_pool->files_number)
+            break;
 
-    if (file == NULL) {
-        printf("Failed to open the file.\n");
-        return 1;
-    }
+        char *file_name = new_coro_context->files_pool->files_names[++new_coro_context->files_pool->last_processed_file_index];
 
-    while (fscanf(file, "%d", &num) == 1)
-        count++;
+        printf("Corutine coro_%ld took file %s\n", new_coro_context->coro_index, file_name);
 
-    int *arr = (int *)malloc(count * sizeof(int));
-    if (arr == NULL) {
-        printf("Memory allocation failed.\n");
-        fclose(file);
-        return 1;
-    }
+        FILE *file;
+        int num, count = 0;
 
-    fseek(file, 0, SEEK_SET);
+        file = fopen(file_name, "r");
 
-    for (int i = 0; i < count; i++) {
-        if (fscanf(file, "%d", &arr[i]) != 1) {
-            printf("Failed to read integer from the file.\n");
+        if (file == NULL) {
+            printf("Failed to open the file.\n");
+            return 1;
+        }
+
+        while (fscanf(file, "%d", &num) == 1)
+            count++;
+
+        int *arr = (int *)malloc(count * sizeof(int));
+        if (arr == NULL) {
+            printf("Memory allocation failed.\n");
             fclose(file);
+            return 1;
+        }
+
+        fseek(file, 0, SEEK_SET);
+
+        for (int i = 0; i < count; i++) {
+            if (fscanf(file, "%d", &arr[i]) != 1) {
+                printf("Failed to read integer from the file.\n");
+                fclose(file);
+                free(arr);
+                return 1;
+            }
+        }
+
+        fclose(file);
+
+        mergeSort(arr, count, context);
+
+        file = fopen(file_name, "w");
+        if (file == NULL) {
+            printf("Failed to open the file for writing.\n");
             free(arr);
             return 1;
         }
-    }
 
-    fclose(file);
+        for (int i = 0; i < count; i++)
+            fprintf(file, "%d ", arr[i]);
 
-    mergeSort(arr, count, context);
-
-    file = fopen(new_coro_context -> file_name, "w");
-    if (file == NULL) {
-        printf("Failed to open the file for writing.\n");
+        fclose(file);
         free(arr);
-        return 1;
     }
-
-    for (int i = 0; i < count; i++)
-        fprintf(file, "%d ", arr[i]);
-
-    fclose(file);
-    free(arr);
 
     return 0;
 }
@@ -213,7 +230,7 @@ int
 main(int argc, char **argv)
 {
     if (argc < 3) {
-        printf("Usage: <executable_name> <number of corutines> <file_name_1> <file_name_2> ...\n");
+        printf("Usage: <executable_path> <number of corutines> <file_name_1> <file_name_2> ...\n");
         return 1;
     }
 
@@ -224,17 +241,29 @@ main(int argc, char **argv)
         return 1;
     }
 
-    struct coro_context *new_coro_context = (struct coro_context*) calloc(argc, sizeof(struct coro_context));
+    char *files_names[512];
+
+    for (int j = 0; j < argc - 2; j++) {
+        files_names[j] = argv[j + 2];
+    }
+
+    struct files_pool *new_files_pool = (struct files_pool*) calloc(argc - 2, sizeof(struct files_pool));
+
+    new_files_pool->files_names = files_names;
+    new_files_pool->last_processed_file_index = -1;
+    new_files_pool->files_number = argc - 2;
+
+    struct coro_context *new_coro_context = (struct coro_context*) calloc(argc - 2, sizeof(struct coro_context));
 
     coro_sched_init();
 
-    for (int i = 2; i < argc; ++i) {
-        printf("%s\n", argv[i]);
+    for (int i = 0; i < corutines_number; ++i) {
 
         struct timespec coro_start_time;
         clock_gettime(CLOCK_MONOTONIC, &coro_start_time);
 
-        new_coro_context[i].file_name = argv[i];
+        new_coro_context[i].files_pool = new_files_pool;
+        new_coro_context[i].coro_index = i;
         new_coro_context[i].coro_overall_time = 0;
         new_coro_context[i].coro_last_yield_time = coro_start_time.tv_sec * 1000 * 1000 * 1000 + coro_start_time.tv_nsec;
         new_coro_context[i].coro_yield_count = 0;
@@ -256,10 +285,11 @@ main(int argc, char **argv)
 
     mergeFiles(outputFile, inputFiles, argc - 2);
 
-    for (int i = 2; i < argc; i++) {
-        printf("coro_%d -> %ld ns, %ld switches\n", i - 1, new_coro_context[i].coro_overall_time, new_coro_context[i].coro_yield_count);
+    for (int i = 0; i < corutines_number; i++) {
+        printf("coro_%d -> %ld ns, %ld switches\n", i, new_coro_context[i].coro_overall_time, new_coro_context[i].coro_yield_count);
     }
 
+    free(new_files_pool);
     free(new_coro_context);
 
     return 0;
