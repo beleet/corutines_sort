@@ -172,7 +172,7 @@ coroutine_func_f(void *context)
 
         char *file_name = new_coro_context->files_pool->files_names[++new_coro_context->files_pool->last_processed_file_index];
 
-        printf("Corutine coro_%ld took file %s\n", new_coro_context->coro_index, file_name);
+        printf("Corutine coro_%ld took '%s'\n", new_coro_context->coro_index, file_name);
 
         FILE *file;
         int num, count = 0;
@@ -230,7 +230,7 @@ int
 main(int argc, char **argv)
 {
     if (argc < 3) {
-        printf("Usage: <executable_path> <number of corutines> <file_name_1> <file_name_2> ...\n");
+        printf("Usage: <executable_path> <target latency> <number of corutines> <file_name_1> <file_name_2> ...\n");
         return 1;
     }
 
@@ -294,3 +294,6 @@ main(int argc, char **argv)
 
     return 0;
 }
+
+// export PATH=$PATH:/bin:/usr/bin
+// gcc main.c libcoro.c utils/heap_help/heap_help.c -ldl -rdynamic
